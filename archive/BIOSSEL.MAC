@@ -1,0 +1,14 @@
+;----------------------------
+; BIOS Hardware CS ADRESSE
+; IM SYSTEM HARDWARE
+;
+LATCH  EQU 0F5H      ; I/O ADRESSE LATCH FOR A8-A15 EXTERN BUS
+SDC    EQU 20H       ; MMC Karte
+LCD    EQU 60H       ; LCD-DISPLAY
+URCS   EQU 80H       ; MIT 2K SRAM A0-A4 in PIOA A5-A7
+
+EOFF   EQU 40H       ; EPROM AUS RAM <32K AKRIV
+RANH   EQU 21H       ; BIT1,5 PIOA BANK1
+RAML   EQU 00H       ; BIT1,5 PIOA BANK0
+;---------------------------
+; END
