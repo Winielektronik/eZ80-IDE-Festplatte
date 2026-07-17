@@ -1,0 +1,1155 @@
+        MACRO-80 3.43   27-Jul-81       PAGE    1
+
+
+                                        ;*****************************************
+                                        ;*    BIOS V 4.2                         *
+                                        ;*****************************************
+                                        ;BIOS F]R Z80 PLATINE 64K UND 60K CP/M
+                                        ;9 DRIVES , HOSTFORMAT 9 S/TR , 512 BYTE /SEC
+                                        ;(C) 1986 WINTERHALTER    (L.W.)
+                                        ;17.07.2007/----
+                                        ; GE[NDER 17.07.2009
+                                ;--------
+                                ; QB42 IN BOOTSECTOR KOPIEREN:
+                                ; POWER STARTEN , READ 0 1 4000 72 AUS SEC 0 72 L[NGE NACH ADR.4000H LADEN
+                                ; LOAD QB42.COM NACH 5800 UND ALTE VERS. ]BERSCHREIBEN
+                                ; WRITE 0 1 4000 96 WIEDER ZUR]CK SCHREIBEN
+                                ;----------------------------------------------------------------
+                                        ;ADRESSEN
+  0000'                         ASEG
+                                
+                                .Z80
+                                
+                                .PHASE 0EA00H
+                                
+  D400                          CCP     EQU 0D400H
+  DC06                          BDOS    EQU 0DC06H
+                                
+  0018                          SIOA    EQU 18H
+  001A                          SIOB    EQU 1AH
+  001C                          PIOA    EQU 1CH
+  001E                          PIOB    EQU 1EH
+                                
+                                        ;-----------------------
+                                        ;  SIO-COMMANDO
+                                
+  0018                          SIORES  EQU 18H         ; SIO RESET
+  0004                          KANAL4  EQU 04H         ; REG 4
+  0044                          REG4    EQU 44H         ; X16 CLOCK, 8, SYNC
+  0003                          KANAL3  EQU 03H         ; REG 3
+  00C1                          RE3     EQU 0C1H        ; 8BIT, RXENABLE
+  0005                          KANAL5  EQU 05H         ; REG 5
+  00EA                          REG5    EQU 0EAH        ; DTR, TX8BIT, TXENABLE
+  0001                          KANAL1  EQU 01H         ; REG 1
+  0000                          REG1    EQU 00H         ; NO INT
+  0000                          KANAL0  EQU 00H         ; REG 0
+                                
+                                        ;---------------------------
+                                
+  FFF0                          ZDTIME  EQU 0FFF0H      ; NOCH NICH PRORGRAMIERT
+  FFF0                          FIRST   EQU 0FFF0H
+  FFF1                          SA      EQU FIRST+1     ; 8B/ 0FFF1H
+  FFF2                          SM      EQU SA+1        ; 8B/ 0FFF2H
+  FFF3                          DMA     EQU SM+1        ; 16B/ 0FFF3H - 4
+  FFF5                          ENA     EQU DMA+2       ; 16B/ 0FFF5H - 6
+  FFF7                          STARTA  EQU ENA+2       ; 16B/ 0FFF7H - 8
+  FFF9                          SECL    EQU STARTA+2    ; 8B/ 0FFF9H - A
+                                
+  0006                          DRVS    EQU 06D         ; 8B/ ANZAHL DER LW.
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-1
+
+
+  F814                          READP   EQU 0F814H
+  F817                          WRITP   EQU 0F817H
+  F81A                          HOMEF   EQU 0F81AH
+  F81D                          CONOUT  EQU 0F81DH
+  F820                          CONIN   EQU 0F820H
+                                ;CONST   EQU 0F823H
+                                ;LIST    EQU 0F826H
+                                ;LISTST  EQU 0F829H
+  F82C                          LCDOUT   EQU 0F82CH
+                                ;SETDMAP EQU 0F82FH
+                                ;SETTRKP EQU 0F832H
+                                ;SETSECP EQU 0F835H
+                                
+                                
+  FFA4                          TRACKL  EQU 0FFA4H
+  FFA5                          TRACKH  EQU TRACKL+1
+  FFA6                          BOOTDR  EQU TRACKH+1
+  FFA7                          HSTDMA  EQU BOOTDR+1
+  FFA9                          HSTSEC  EQU HSTDMA+2
+  FFAB                          HSTTRK  EQU HSTSEC+2
+  FFAD                          HSTDSK  EQU HSTTRK+2
+  FFAE                          DRIVE   EQU HSTDSK+1
+  FFAF                          STATUS  EQU DRIVE+1
+  FFB0                          NBUF    EQU STATUS+1
+  FFB6                          TRACKN  EQU NBUF+6
+  FFB7                          STEPR   EQU TRACKN+1    ;SPEICHER F]R STEPRATE
+                                
+  FFC0                          HSTB    EQU 0FFC0H      ;TABELLE FUER HOSTSKEW LW B
+                                
+                                ;BDOS CONST. BEIM SCHREIBEN
+                                
+  0000                          WRALL   EQU 0           ;WRITE TO ALLOCATED
+  0001                          WRDIR   EQU 1           ;WRITE TO DIRECTORY
+  0002                          WRUAL   EQU 2           ;WRITE TO UNALLOCATED
+                                
+                                ;------------------------- S T A R T   B I O S -----------------------------
+                                
+  EA00    C3 EAC5               BIOS::  JP BOOT         ; KALTSTARTINITIALISIERUNG
+  EA03    C3 EB0F                       JP WBOOT        ; WARMSTART AUSF]HRUNG
+  EA06    C3 EE8C                       JP CONST        ; KONSOLENSTATUS ABFRAGEN
+  EA09    C3 F820                       JP CONIN        ; KONSOLENEINGABE
+  EA0C    C3 F81D                       JP CONOUT       ; KONSOLENAUSGABE
+  EA0F    C3 EEF8                       JP LIST         ; DRUCKERAUSGABE
+  EA12    C3 EF7C                       JP PUNCH
+  EA15    C3 EF7D                       JP READER
+  EA18    C3 EB66                       JP HOME         ; KOPF AUF SPUR 00 STELLEN
+  EA1B    C3 EB73                       JP SELDSK       ; LAUFWERK AUSW[HLEN
+  EA1E    C3 EB89                       JP SETTRK       ; SPUR AUSW[HLEN
+  EA21    C3 EB8E                       JP SETSEC       ; AUFZEICHNUNGSABSCHNITT W[HLEN
+  EA24    C3 EB93                       JP SETDMA       ; DATENPUFFERADRESSE SETZEN
+  EA27    C3 EBA4                       JP READ         ; AUFZEICHNUNGSABSCHNITT LESEN
+  EA2A    C3 EBB8                       JP WRITE        ; AUFZEICHNUNGSABSCHNITT SCHREIBEN
+  EA2D    C3 EF65                       JP LISTST       ; DRUCKERSTATUS ABFRAGEN
+  EA30    C3 EB98                       JP SECTRAN
+                                ;----------------------------TABELLEN FUER MODIFIKATION----------------------
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-2
+
+
+  EA33    0000                  DPBASE: DEFW 0  ;XLT1
+  EA35    0000                          DEFW 0
+  EA37    0000                          DEFW 0
+  EA39    0000                          DEFW 0
+  EA3B    F2DB                          DEFW DIRBUF
+  EA3D    EA93                          DEFW DPB1
+  EA3F    EF92                          DEFW CSV0
+  EA41    F0D2                          DEFW ALV0
+                                
+  EA43    0000                          DEFW 0  ;XLT1
+  EA45    0000                          DEFW 0
+  EA47    0000                          DEFW 0
+  EA49    0000                          DEFW 0
+  EA4B    F2DB                          DEFW DIRBUF
+  EA4D    EAA2                          DEFW DPB2
+  EA4F    EFD2                          DEFW CSV1
+  EA51    F1DB                          DEFW ALV1
+                                
+  EA53    0000                          DEFW 0  ;XLT1
+  EA55    0000                          DEFW 0
+  EA57    0000                          DEFW 0
+  EA59    0000                          DEFW 0
+  EA5B    F2DB                          DEFW DIRBUF
+  EA5D    EAA2                          DEFW DPB2
+  EA5F    EFD2                          DEFW CSV1
+  EA61    F1DB                          DEFW ALV1
+                                
+  EA63    0000                          DEFW 0  ;XLT1
+  EA65    0000                          DEFW 0
+  EA67    0000                          DEFW 0
+  EA69    0000                          DEFW 0
+  EA6B    F2DB                          DEFW DIRBUF
+  EA6D    EAA2                          DEFW DPB2
+  EA6F    EFD2                          DEFW CSV1
+  EA71    F1DB                          DEFW ALV1
+                                
+  EA73    0000                          DEFW 0  ;XLT1
+  EA75    0000                          DEFW 0
+  EA77    0000                          DEFW 0
+  EA79    0000                          DEFW 0
+  EA7B    F2DB                          DEFW DIRBUF
+  EA7D    EAA2                          DEFW DPB2
+  EA7F    EFD2                          DEFW CSV1
+  EA81    F1DB                          DEFW ALV1
+                                
+  EA83    0000                          DEFW 0  ;XLT1
+  EA85    0000                          DEFW 0
+  EA87    0000                          DEFW 0
+  EA89    0000                          DEFW 0
+                                
+  EA8B    F2DB                          DEFW DIRBUF
+  EA8D    EAA2                          DEFW DPB2
+  EA8F    EFD2                          DEFW CSV1
+  EA91    F1DB                          DEFW ALV1
+                                
+  EA93    0024                  DPB1::  DEFW 36         ; SPT SEKTR * 4 CP/M SEC/TRK
+        MACRO-80 3.43   27-Jul-81       PAGE    1-3
+
+
+  EA95    04                    BLKV1:: DEFB 4          ; BSH 64 REC/BLOCK
+  EA96    0F                    BLKM1:: DEFB 15D        ; BLM DITTO
+  EA97    00                    EM1::   DEFB 0          ; EXM EXTENT MASK
+  EA98    0162                  KAP1::  DEFW 354D       ; DSM 354 BLOCKS KAPAZIT[T
+  EA9A    007F                  DE1::   DEFW 127D       ; DRM 127 DIRECTORY ENTRIES
+  EA9C    00                    DM1::   DEFB 0          ; AL0 4 BLOCKS FOR DIR
+  EA9D    00                            DEFB 0          ; AL1
+  EA9E    0020                  DC1::   DEFW 32D        ; CKS NO SCRATCH
+  EAA0    0002                  RT1::   DEFW 2          ; OFF 2 TRACKS OFFSET
+                                
+  EAA2    00FF                  DPB2::  DEFW 0FFH       ; SPT SEKTR * 4 CP/M SEC/TRK
+  EAA4    08                    BLKV2:: DEFB 8          ; BSH BLOCK-SHIFT-FAKTOR DATEN ZUTELUNG
+  EAA5    3F                    BLKM2:: DEFB 63D        ; BLM DITTO
+  EAA6    03                    EM2::   DEFB 3          ; EXM EXTENT MASK
+  EAA7    03FF                  KAP2::  DEFW 1023D      ; DRM 1024 BLOCKS KAPAZIT[T
+  EAA9    03FF                  DE2::   DEFW 3FFH       ; 1024 DIRECTORY ENTRIES
+  EAAB    F0                    DM2::   DEFB 0F0H       ; 4 BLOCKS FOR DIR
+  EAAC    00                            DEFB 0
+  EAAD    0000                  DC2::   DEFW 0          ; NO SCRATCH FESTPLATTE = 0
+  EAAF    0002                  RT2::   DEFW 2          ; 2 TRACKS RESERVIERT F]R SYSTEM  OFFSET
+                                
+                                
+                                ;KONSTANTEN FUER LAUFWERKE A,B,.....
+                                
+  EAB1    04                    BLSIZ1::DEFB 4          ;CPMS/HST
+  EAB2    04                    BLSIZ2::DEFB 4
+  EAB3    04                    BLSIZ3::DEFB 4
+  EAB4    04                    BLSIZ4::DEFB 4
+  EAB5    04                    BLSIZ5::DEFB 4
+  EAB6    04                    BLSIZ6::DEFB 4
+  EAB7    00                            DEFB 0
+                                
+  EAB8    10                    BLKL1:: DEFB 010H       ;BLOCKGR. /128
+  EAB9    10                    BLKL2:: DEFB 010H
+  EABA    10                    BLKL3:: DEFB 010H
+  EABB    10                    BLKL4:: DEFB 010H
+  EABC    10                    BLKL5:: DEFB 010H
+  EABD    10                    BLKL6:: DEFB 010H
+                                
+                                
+  EABE    4F                    TRACKA::DEFB 79D        ;SPUREN /SEITE LW A
+  EABF    FF                    TRACKB::DEFB 0FFH        ;SPUREN /SEITE LW B
+                                
+  EAC0    01                    STEPRM::DEFB 01         ;STEP 6MS
+                                
+                                ;NUR FUER BOOTLAUFWERK A
+                                
+  EAC1    0200                  HSTSIZ::DEFW    512D
+  EAC3    09                    HSTSPT::DEFB    9D
+                                
+                                ;SKEW-MERKER NUR LW B:
+                                
+  EAC4    00                    HSSKEW::DEFB    0
+                                
+                                ;---------------------------------------------------------------------------
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-4
+
+
+  EAC5    31 0100               BOOT:   LD SP,100H
+                                ;       CALL INIV24
+  EAC8    11 ED54                       LD DE, MELDTXT
+  EACB    CD ED95                       CALL TEXOUT
+  EACE    CD EDA8                       CALL NEWL
+  EAD1    CD EDA8                       CALL NEWL
+  EAD4    AF                            XOR A
+  EAD5    32 FFAE                       LD (DRIVE),A
+  EAD8    32 FFAD                       LD (HSTDSK),A  ; =NDRIVE
+  EADB    32 0004                       LD (4),A
+  EADE    3E 00                 GCPM:   LD A,0
+  EAE0    32 0003                       LD (3),A        ;I/O-BYTE,USER
+  EAE3    3E C3                         LD A,0C3H       ;JP
+  EAE5    32 0000                       LD (0),A
+  EAE8    32 0005                       LD (5),A
+  EAEB    21 EA03                       LD HL,BIOS+3
+  EAEE    22 0001                       LD (1),HL
+  EAF1    21 DC06                       LD HL,BDOS
+  EAF4    22 0006                       LD (6),HL
+  EAF7    AF                            XOR A
+  EAF8    32 EF85                       LD (HSTACT),A
+  EAFB    32 EF87                       LD (UNACNT),A
+  EAFE    3A EAC0                       LD A,(STEPRM)
+  EB01    32 FFB7                       LD (STEPR),A
+  EB04    3A 0004                       LD A,(4)
+  EB07    4F                            LD C,A          ;BEZUGSLW. ZUM BOOTEN
+  EB08    C3 D400                       JP CCP
+  EB0B                                  DEFS 4
+  EB0F    31 0100               WBOOT:: LD SP,100H
+  EB12    AF                            XOR A
+  EB13    32 FFAB                       LD      (HSTTRK),A
+  EB16    32 FFAC                       LD      (HSTTRK+1),A
+  EB19    32 FFAD                       LD      (HSTDSK),A
+  EB1C    4F                            LD      C,A
+  EB1D    06 0C                         LD      B,12D           ;11 SECS TO BOOT
+  EB1F    3A FFF1                       LD      A,(SA)          ;SEKTOR 2
+  EB22    57                            LD      D,A
+  EB23    21 D400                       LD      HL,CCP
+  EB26    22 FFA7                       LD      (HSTDMA),HL
+  EB29    C5                    WBOOT1: PUSH    BC
+  EB2A    D5                            PUSH    DE
+  EB2B    7A                            LD      A,D
+  EB2C    32 FFA9                       LD      (HSTSEC),A      ;PHYSIKAL. SEKTORNUMMER
+  EB2F    CD F814                       CALL    READP
+  EB32    ED 4B FFF9                    LD      BC,(SECL)       ;SEKTORLAENGE
+  EB36    2A FFA7                       LD      HL,(HSTDMA)
+  EB39    09                            ADD     HL,BC
+  EB3A    22 FFA7                       LD      (HSTDMA),HL
+  EB3D    D1                            POP     DE
+  EB3E    C1                            POP     BC
+  EB3F    38 CE                         JR      C,WBOOT         ;BEI FEHLER
+  EB41    05                            DEC     B               ;SEKTORZAEHLER -1
+  EB42    28 14                         JR      Z,WBOOT2        ;ENDE
+  EB44    14                            INC     D               ; SEKTOR+1
+  EB45    3A FFF2                       LD      A,(SM)          ; SEKTORL[NGE
+  EB48    BA                            CP      D               ;LETZTER SEKTOR?
+        MACRO-80 3.43   27-Jul-81       PAGE    1-5
+
+
+  EB49    30 DE                         JR      NC,WBOOT1
+  EB4B    0C                            INC     C               ;NAECHSTE SPUR
+  EB4C    16 01                         LD      D,1
+  EB4E    79                            LD      A,C
+  EB4F    32 FFAB                       LD      (HSTTRK),A      ;=LOW TRACK IN BOOTM.
+  EB52    AF                            XOR     A
+  EB53    32 FFAC                       LD      (HSTTRK+1),A    ; HIGH TRACK
+  EB56    18 D1                         JR      WBOOT1
+                                
+  EB58    3A 0004               WBOOT2: LD A,(4)        ;BEZUGSLW.
+  EB5B    FE 06                         CP DRVS         ; ANZAHL LAUFWERKE REALE NUMMER?
+  EB5D    38 01                         JR C,OK
+  EB5F    AF                            XOR A           ;NICHT REAL
+  EB60    32 0004               OK:     LD (4),A
+  EB63    C3 EADE                       JP GCPM
+                                
+                                ;---------------------------------------------------------------------------
+                                ;       * HOME *
+                                
+  EB66    CD F81A               HOME:   CALL    HOMEF
+  EB69    3A EF86                       LD      A,(HSTWRT)      ; CHECK FOR PENDING WRITE
+  EB6C    B7                            OR      A
+  EB6D    20 03                         JR      NZ,HOMED
+  EB6F    32 EF85                       LD      (HSTACT),A      ; CLEAR HOST ACTIVE FLAG
+  EB72    C9                    HOMED:  RET
+                                
+                                ;* SELDSK *----------------------------
+                                
+  EB73    21 0000               SELDSK::LD HL,0
+  EB76    79                            LD A,C
+  EB77    FE 06                         CP DRVS
+  EB79    D0                            RET NC          ; LW NICHT VORH.->
+  EB7A    32 EF80                       LD (SEKDSK),A   ; LW ]BERNEHMEN
+  EB7D    6F                    SELDS1: LD L,A
+  EB7E    26 00                         LD H,0
+                                        REPT 4
+                                        ADD     HL,HL
+                                        ENDM
+  EB80    29              +             ADD     HL,HL
+  EB81    29              +             ADD     HL,HL
+  EB82    29              +             ADD     HL,HL
+  EB83    29              +             ADD     HL,HL
+                                
+  EB84    11 EA33                       LD DE,DPBASE
+  EB87    19                            ADD HL,DE
+  EB88    C9                            RET
+                                
+                                ;* SETTRK *----------------------------
+                                
+  EB89    79                    SETTRK: LD A,C
+  EB8A    32 EF81                       LD (SEKTRK),A
+  EB8D    C9                            RET
+                                
+                                ;* SETSEC *----------------------------
+                                
+  EB8E    79                    SETSEC: LD A,C
+        MACRO-80 3.43   27-Jul-81       PAGE    1-6
+
+
+  EB8F    32 EF83                       LD (SEKSEC),A
+                                        ;LD A,B
+                                        ;LD (SEKSEC+1),A
+  EB92    C9                            RET
+                                
+                                ;* SETDMA *----------------------------
+                                
+  EB93    ED 43 EF90            SETDMA: LD (DMAAD),BC
+  EB97    C9                            RET
+                                
+                                ;* SECTRAN *---------------------------
+                                
+  EB98    60                    SECTRAN::LD H,B
+  EB99    69                            LD L,C
+  EB9A    C9                            RET
+                                
+                                ;BERECHNEN VON LW.-ABHAENGIGEN KONSTANTEN IN TABELLE
+                                ;EINGANG A=SEKDSK, HL = ADRESSE DES PARAMETERS* AUSG. A=WERT
+                                
+  EB9B    D5                    CBLK:   PUSH DE
+  EB9C    11 0000                       LD DE,0
+  EB9F    5F                            LD E,A
+  EBA0    19                            ADD HL,DE
+  EBA1    7E                            LD A,(HL)       ;BLKSIZ/128 IN A
+  EBA2    D1                            POP DE
+  EBA3    C9                            RET
+                                
+                                ;* READ *------------------------------
+                                
+  EBA4    AF                    READ::  XOR A
+  EBA5    32 EF87                       LD (UNACNT),A
+  EBA8    3E 01                         LD A,1
+  EBAA    32 EF8E                       LD (READOP),A   ;LESE OP
+  EBAD    32 EF8D                       LD (RSFLAG),A   ;LESEN ERZWINGEN
+  EBB0    3E 02                         LD A,WRUAL
+  EBB2    32 EF8F                       LD (WRTYPE),A   ;ALS NEUER BLOCK AUFFASSEN
+  EBB5    C3 EC31                       JP RWOPER
+                                
+                                ;* WRITE *-----------------------------
+                                
+  EBB8    AF                    WRITE:: XOR A
+  EBB9    32 EF8E                       LD (READOP),A   ;SCHREIB OP
+  EBBC    79                            LD A,C          ;WRITE TYPE IN C
+  EBBD    32 EF8F                       LD (WRTYPE),A
+  EBC0    FE 02                         CP WRUAL        ;NEUER BLOCK?
+  EBC2    20 1B                         JR NZ,CHKUNA
+                                
+                                ;NEUEN BLOCK SCHREIBEN, PARAMETER SETZEN
+                                ; EINE  GR. = SEC: 16D =10H
+                                
+  EBC4    3A EF80                       LD A,(SEKDSK)
+  EBC7    32 EF88                       LD (UNADSK),A   ;SEEK-LW. ALS UNALLOC.
+  EBCA    21 EAB8                       LD HL,BLKL1
+  EBCD    CD EB9B                       CALL CBLK
+  EBD0    32 EF87                       LD (UNACNT),A   ;BLOCKLAENGE IN CPM-SEKTOREN
+  EBD3    3A EF81                       LD A,(SEKTRK)
+        MACRO-80 3.43   27-Jul-81       PAGE    1-7
+
+
+  EBD6    32 EF89                       LD (UNATRK),A
+  EBD9    3A EF83                       LD A,(SEKSEC)
+  EBDC    32 EF8B                       LD (UNASEC),A
+                                
+                                ;PRUEFEN OB EIN BLOCKSEKTOR GESCHRIEBEN WERDEN KANN
+                                
+  EBDF    3A EF87               CHKUNA: LD A,(UNACNT)   ;REST VON BLOCKSEKTOREN VORHANDEN?
+  EBE2    B7                            OR A
+  EBE3    28 44                         JR Z,ALLOC      ;NEIN
+                                
+                                ;JA, WEITER PRUEFEN
+                                
+  EBE5    3D                            DEC A           ;UNACNT-1
+  EBE6    32 EF87                       LD (UNACNT),A
+  EBE9    3A EF80                       LD A,(SEKDSK)
+  EBEC    2A EF88                       LD HL,(UNADSK)
+  EBEF    BE                            CP (HL)         ;AKT. LAUFWERK EIN BLOCKLW.?
+  EBF0    20 37                         JR NZ,ALLOC     ;NEIN
+                                
+                                ;GLEICHES LAUFWERK
+                                
+  EBF2    3A EF89                       LD A,(UNATRK)
+  EBF5    21 EF81                       LD HL,SEKTRK
+  EBF8    BE                            CP (HL)         ;GLEICHE SPUR?
+  EBF9    20 2E                         JR NZ,ALLOC     ;NEIN
+                                
+                                ;GLEICHE SPUR
+                                
+  EBFB    3A EF83                       LD A,(SEKSEC)
+  EBFE    21 EF8B                       LD HL,UNASEC
+  EC01    BE                            CP (HL)         ;GLEICHER SEKTOR?
+  EC02    20 25                         JR NZ,ALLOC     ;NEIN
+                                
+                                ;PASST! STELLE NEUEN SEKTOR EIN FUER NACHF. ZUGRIFF
+                                
+  EC04    34                            INC (HL)        ;UNASEC+1
+  EC05    7E                            LD A,(HL)
+  EC06    E5                            PUSH HL
+  EC07    F5                            PUSH AF
+  EC08    3A EF80                       LD A,(SEKDSK)
+  EC0B    CD EB7D                       CALL SELDS1     ;ADR. VON AKT. DPBASE IN HL
+  EC0E    16 00                         LD D,0
+  EC10    1E 0A                         LD E,0AH
+  EC12    19                            ADD HL,DE       ; DPBASE ADRESSE IN HL + ABSTAND DPB1
+  EC13    5E                            LD E,(HL)       ; LOW ADRESSET
+  EC14    23                            INC HL
+  EC15    56                            LD D,(HL)       ; HIGH ADRESSE
+  EC16    EB                            EX DE,HL        ;ADRESSE VON CPMS/TRK IN HL
+  EC17    5E                            LD E,(HL)       ;CPMS/TRK L[NGE
+  EC18    F1                            POP AF
+  EC19    E1                            POP HL
+  EC1A    BB                            CP E
+  EC1B    38 06                         JR C,NOOVF      ;NEIN
+                                
+                                ;UEBERLAUF ZUR NAECHSTEN SPUR
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-8
+
+
+  EC1D    36 00                         LD (HL),0       ;UNASEC=1
+  EC1F    21 EF89                       LD HL,UNATRK
+  EC22    34                            INC (HL)        ;UNATRK+1
+                                
+                                ;ANPASSUNG, MUSS NICHT GELESEN WERDEN
+                                
+  EC23    AF                    NOOVF:  XOR A
+  EC24    32 EF8D                       LD (RSFLAG),A   ;RSFLAG=0
+  EC27    18 08                         JR RWOPER
+                                
+                                ;KEIN BLOCKSEKTOR ,MUSS GELESEN WERDEN
+                                
+  EC29    AF                    ALLOC:  XOR A
+  EC2A    32 EF87                       LD (UNACNT),A   ;UNACNT=0
+  EC2D    3C                            INC A
+  EC2E    32 EF8D                       LD (RSFLAG),A   ;RSFLAG=1
+                                
+                                ;GEMEINSAMES PROGRAMM FUER LESEN UND SCHREIBEN
+                                
+  EC31    AF                    RWOPER: XOR A
+  EC32    32 EF8C                       LD      (ERFLAG),A      ;NO ERRORS
+                                ;HOSTSEKTOR BERECHNEN
+                                
+  EC35    3A EF80                       LD A,(SEKDSK)
+  EC38    21 EAB1                       LD HL,BLSIZ1
+  EC3B    CD EB9B                       CALL CBLK
+  EC3E    26 00                         LD H,0
+  EC40    6F                            LD L,A
+  EC41    3A EF83                       LD A,(SEKSEC)
+  EC44    95                    INCH:   SUB L
+  EC45    24                            INC H
+  EC46    30 FC                         JR NC,INCH
+  EC48    7C                            LD A,H
+  EC49    32 EF84                       LD (SEKHST),A
+                                
+                                ;AKTIVER  HOST SEKTOR?
+                                
+  EC4C    21 EF85                       LD HL,HSTACT    ;HOST ACTIVE FLAG
+  EC4F    7E                            LD A,(HL)
+  EC50    36 01                         LD (HL),1
+  EC52    B7                            OR A            ;SCHON GELESEN?
+  EC53    28 22                         JR Z,FILHST     ;NEIN, HOST PUFFER FUELLEN
+                                
+                                ;HOST PUFFER ACTIV, GLEICHES LW.?
+                                
+  EC55    3A EF80                       LD A,(SEKDSK)
+  EC58    21 FFAD                       LD HL,HSTDSK
+  EC5B    BE                            CP (HL)         ;SEKDSK=HSTDSK?
+  EC5C    20 12                         JR NZ,NOMATCH   ;NEIN
+                                
+                                ;GLEICHE SPUR?
+                                
+  EC5E    3A FFAB                       LD A,(HSTTRK)
+  EC61    21 EF81                       LD HL,SEKTRK
+  EC64    BE                            CP (HL)         ;HSTTRK=SEKTRK?
+  EC65    20 09                         JR NZ,NOMATCH   ;NEIN
+        MACRO-80 3.43   27-Jul-81       PAGE    1-9
+
+
+                                
+                                ;GLEICHER HOSTSEKTOR?
+                                
+  EC67    3A EF84                       LD A,(SEKHST)
+  EC6A    21 FFA9                       LD HL,HSTSEC
+  EC6D    BE                            CP (HL)         ;SEKHST=HSTSEC?
+  EC6E    28 24                         JR Z,MATCH      ;JA
+                                
+                                ;NEIN MUSS NEU GELESEN WERDEN
+                                
+  EC70    3A EF86               NOMATCH:LD A,(HSTWRT)
+  EC73    B7                            OR A            ;SCHON GESCHRIEBEN?
+  EC74    C4 ECDE                       CALL NZ,WRITHST ;CLEAR HOST BUFF
+                                
+                                ;HO PUFFER FUELLEN
+                                
+  EC77    3A EF80               FILHST: LD A,(SEKDSK)
+  EC7A    32 FFAD                       LD (HSTDSK),A
+  EC7D    3A EF81                       LD A,(SEKTRK)
+  EC80    32 FFAB                       LD (HSTTRK),A
+  EC83    3A EF84                       LD A,(SEKHST)
+  EC86    32 FFA9                       LD (HSTSEC),A
+  EC89    3A EF8D                       LD A,(RSFLAG)
+  EC8C    B7                            OR A
+  EC8D    C4 ED00                       CALL NZ,READHST ;FALLS NOETIG
+  EC90    AF                            XOR A
+  EC91    32 EF86                       LD (HSTWRT),A
+                                
+                                ;DATEN VOM PUFFER HOLEN ODER IN PUFFER SCHREIBEN
+                                
+  EC94    3A EF83               MATCH:  LD A,(SEKSEC)
+  EC97    F5                            PUSH AF
+  EC98    3A EF80                       LD A,(SEKDSK)
+  EC9B    21 EAB1                       LD HL,BLSIZ1
+  EC9E    CD EB9B                       CALL CBLK
+  ECA1    6F                            LD L,A
+  ECA2    F1                            POP AF
+  ECA3    2D                            DEC L   ;SECMASK=BLKSIZE/128 IN L
+  ECA4    A5                            AND L
+  ECA5    6F                            LD L,A
+  ECA6    26 00                         LD H,0
+                                        REPT 7
+                                        ADD HL,HL
+                                        ENDM
+  ECA8    29              +             ADD HL,HL
+  ECA9    29              +             ADD HL,HL
+  ECAA    29              +             ADD HL,HL
+  ECAB    29              +             ADD HL,HL
+  ECAC    29              +             ADD HL,HL
+  ECAD    29              +             ADD HL,HL
+  ECAE    29              +             ADD HL,HL
+                                
+                                ;HL = REL. HOST PUFFER ADRESSE
+                                
+  ECAF    11 F35B                       LD DE,HSTBUF
+  ECB2    19                            ADD HL,DE       ;HL=ABS.HOST PUFFER ADRESSE
+        MACRO-80 3.43   27-Jul-81       PAGE    1-10
+
+
+  ECB3    ED 5B EF90                    LD DE,(DMAAD)   ;CPM DMA ADR
+  ECB7    01 0080                       LD BC,128D      ;CPM SEKTORLAENGE
+  ECBA    3A EF8E                       LD A,(READOP)   ;WELCHE RICHTUNG?
+  ECBD    B7                            OR A
+  ECBE    20 06                         JR NZ,RWMOVE
+                                
+                                ;SCHREIB OP MARKIEREN UND RICHTUNG UMSCHALTEN
+                                
+  ECC0    3E 01                         LD A,1
+  ECC2    32 EF86                       LD (HSTWRT),A   ;HSTWRT=1
+  ECC5    EB                            EX DE,HL        ;QUELLE/ZIEL TAUSCHEN
+  ECC6    ED B0                 RWMOVE: LDIR
+                                
+                                ;DATEN WURDEN GESCHOBEN
+                                
+  ECC8    3A EF8F                       LD A,(WRTYPE)   ;SCHREIBMODUS
+  ECCB    FE 01                         CP WRDIR        ;IN DIRECTORY?
+  ECCD    3A EF8C                       LD A,(ERFLAG)
+  ECD0    C0                            RET NZ          ;NEIN
+                                
+                                ;HOST PUFFER LOESCHEN FUER DIRECTORY SCHREIB OP.
+                                
+  ECD1    B7                            OR A
+  ECD2    C0                            RET NZ          ;BEI ERROR
+  ECD3    AF                            XOR A
+  ECD4    32 EF86                       LD (HSTWRT),A   ;PUFFER GESCHRIEBEN
+  ECD7    CD ECDE                       CALL WRITHST
+  ECDA    3A EF8C                       LD A,(ERFLAG)
+  ECDD    C9                            RET
+                                
+  ECDE    21 F35B               WRITHST:LD HL,HSTBUF
+  ECE1    22 FFA7                       LD (HSTDMA),HL
+  ECE4    CD ED22                       CALL SEKTRA     ;PHYSIKAL. SEKTOR TRANSFORMIEREN NUR LW. B
+  ECE7    CD ED3D                       CALL STEP1
+  ECEA    3A EF80                       LD A,(SEKDSK)
+  ECED    21 EABE                       LD HL,TRACKA
+  ECF0    CD EB9B                       CALL CBLK
+  ECF3    32 FFB6                       LD (TRACKN),A
+  ECF6    CD F817                       CALL WRITP
+  ECF9    32 EF8C                       LD (ERFLAG),A
+  ECFC    CD ED49                       CALL STEP2
+  ECFF    C9                            RET
+                                
+  ED00    21 F35B               READHST:LD HL,HSTBUF
+  ED03    22 FFA7                       LD (HSTDMA),HL
+  ED06    CD ED22                       CALL SEKTRA
+  ED09    CD ED3D                       CALL STEP1
+  ED0C    3A EF80                       LD A,(SEKDSK)
+  ED0F    21 EABE                       LD HL,TRACKA
+  ED12    CD EB9B                       CALL CBLK
+  ED15    32 FFB6                       LD (TRACKN),A
+  ED18    CD F814                       CALL READP
+  ED1B    32 EF8C                       LD (ERFLAG),A
+  ED1E    CD ED49                       CALL STEP2
+  ED21    C9                            RET
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-11
+
+
+                                ;HOSTSEKTOR SKEW, FALLS MASKE GESETZT IN LW B
+                                
+  ED22    3A EAC4               SEKTRA: LD A,(HSSKEW)
+  ED25    B7                            OR A
+  ED26    C8                            RET Z
+  ED27    3A EF80                       LD A,(SEKDSK)
+  ED2A    FE 01                         CP 1
+  ED2C    C0                            RET NZ
+  ED2D    16 00                         LD D,0
+  ED2F    21 FFC0                       LD HL,HSTB
+  ED32    3A FFA9                       LD A,(HSTSEC)
+  ED35    3D                            DEC A
+  ED36    5F                            LD E,A
+  ED37    19                            ADD HL,DE
+  ED38    7E                            LD A,(HL)
+  ED39    32 FFA9                       LD (HSTSEC),A
+  ED3C    C9                            RET
+                                
+                                ;STEPPERRATE AENDERN FUER LW C
+                                
+  ED3D    3A EF80               STEP1:  LD A,(SEKDSK)
+  ED40    FE 02                         CP 2
+  ED42    C0                            RET NZ
+  ED43    D6 01                         SUB 1
+  ED45    32 FFB7                       LD (STEPR),A
+  ED48    C9                            RET
+  ED49    3A EF80               STEP2:  LD A,(SEKDSK)
+  ED4C    FE 02                         CP 2
+  ED4E    C0                            RET NZ
+  ED4F    AF                            XOR A
+  ED50    32 FFB7                       LD (STEPR),A
+  ED53    C9                            RET
+                                
+                                ;---------------------------------------------------------------------------
+  ED54                          MELDTXT:
+  ED54    2A 2A 20 31                   DEFM '** 130k cp/m 2.2 / B4.2/ TERMINAL / H.Winterhalter 2007'
+  ED58    33 30 6B 20           
+  ED5C    63 70 2F 6D           
+  ED60    20 32 2E 32           
+  ED64    20 2F 20 42           
+  ED68    34 2E 32 2F           
+  ED6C    20 54 45 52           
+  ED70    4D 49 4E 41           
+  ED74    4C 20 2F 20           
+  ED78    48 2E 57 69           
+  ED7C    6E 74 65 72           
+  ED80    68 61 6C 74           
+  ED84    65 72 20 32           
+  ED88    30 30 37              
+  ED8B    20 2D 4D 4D                   DEFM ' -MMC- **'
+  ED8F    43 2D 20 2A           
+  ED93    2A                    
+  ED94    0D                            DEFB 0DH
+                                ;---------------------------------------------------------------------------
+                                ;TEXTAUSGABE DE=TEXTANFANG, SZ= 0DH
+                                
+        MACRO-80 3.43   27-Jul-81       PAGE    1-12
+
+
+  ED95    F5                    TEXOUT: PUSH AF
+  ED96    C5                            PUSH BC
+  ED97    1A                            LD A,(DE)
+  ED98    FE 0D                         CP 0DH
+  ED9A    20 03                         JR NZ,TEX1
+  ED9C    C1                            POP BC
+  ED9D    F1                            POP AF
+  ED9E    C9                            RET
+  ED9F    4F                    TEX1:   LD C,A
+  EDA0    D5                            PUSH DE
+  EDA1    CD F81D                       CALL CONOUT
+  EDA4    D1                            POP DE
+  EDA5    13                            INC DE
+  EDA6    18 EF                         JR TEXOUT+2
+                                
+                                ;NEUE ZEILE AUSGEBEN
+                                
+  EDA8    0E 0D                 NEWL:   LD C,0DH
+  EDAA    CD F81D                       CALL CONOUT
+  EDAD    0E 0A                         LD C,0AH
+  EDAF    CD F81D                       CALL CONOUT
+  EDB2    C9                            RET
+                                
+                                ;-----------------------------
+                                ; TX BUFFER LEER PR]FEN
+                                
+                                ;CONOUT:        LD B,C                  ; ZEICHEN RETTEN
+  EDB3    0E 19                         LD C,SIOA+1             ; SIO ADRESSE
+  EDB5    CD EDC2                       CALL TX2
+  EDB8    78                            LD A,B
+  EDB9    D3 18                         OUT (SIOA),A                ; ZEICHEN AUSGEBEN
+  EDBB    C9                            RET
+                                
+                                ;----------------
+                                ; PAUSE MACHEN
+                                
+  EDBC    3E 1F                 TXX:    LD      A,01FH          ; PAUSE MACHEN
+  EDBE    3D                            DEC     A
+  EDBF    28 FD                         JR Z,TXX+2
+  EDC1    C9                            RET
+                                
+                                ;----------------
+                                ; PR]FE OB ZEICHEN ]BERTRAGEN UND BUFFER LEER IST
+                                
+  EDC2    ED 78                 TX2:    IN      A,(C)
+  EDC4    CB 57                         BIT     2,A             ; TRANSMISSION BUFFER EMPTY
+  EDC6    28 FA                         JR      Z,TX2
+  EDC8    C9                            RET
+                                ;--------------------------------
+                                ; RX BUFFER LEER PR]FEN
+                                
+                                ;CONIN:  PUSH    DE
+  EDC9    DD E5                         PUSH    IX
+  EDCB    21 EEF7                       LD      HL,SEQ
+  EDCE    DD 21 EEF5                    LD      IX,CPUF
+  EDD2    7E                            LD      A,(HL)
+        MACRO-80 3.43   27-Jul-81       PAGE    1-13
+
+
+  EDD3    B7                            OR      A
+  EDD4    20 6F                         JR      NZ,CONIN6               ; LAUFENDE SEQUENZ
+  EDD6    0E 19                         LD      C,SIOA+1
+  EDD8    3E 05                         LD      A,KANAL5
+  EDDA    ED 79                         OUT     (C),A
+  EDDC    3E EA                         LD      A,REG5                  ; DTR =1
+                                        ;RES     7,A
+  EDDE    ED 79                         OUT     (C),A
+                                
+  EDE0    CD EDC2                       CALL TX2
+  EDE3    CB 47                         BIT     0,A
+  EDE5    20 21                         JR      NZ,CONIN2               ; PR]FE OB ZEICHEN DA ->JA
+                                
+  EDE7    3E 05                 CONIN1: LD      A,KANAL5
+  EDE9    D3 19                         OUT     (SIOA+1),A
+  EDEB    3E EA                         LD      A,REG5                  ; DTR =1
+  EDED    CB BF                         RES     7,A
+  EDEF    D3 19                         OUT     (SIOA+1),A
+  EDF1    00                            NOP                     ; PAUSE
+  EDF2    3E 05                         LD      A,KANAL5
+  EDF4    D3 19                         OUT     (SIOA+1),A
+  EDF6    3E EA                         LD      A,REG5                  ; DTR =0
+  EDF8    CB FF                         SET     7,A
+  EDFA    D3 19                         OUT     (SIOA+1),A
+                                
+  EDFC    CD EDBC                       CALL    TXX
+  EDFF    0E 19                         LD C,SIOA+1
+  EE01    CD EDC2                       CALL TX2
+  EE04    CB 47                         BIT     0,A
+  EE06    28 DF                         JR      Z,CONIN1                ; PR]FE OB ZEICHEN DA ->NEIN
+                                
+  EE08    DB 18                 CONIN2: IN      A,(SIOA)                ;ZEICHEN HOLEN
+                                ;       CALL    CONIN7
+  EE0A    4F                            LD      C,A
+  EE0B    FE 1B                         CP      1BH             ; ESC
+  EE0D    20 31                         JR      NZ,CONIN5       ; ->NEIN
+  EE0F    06 02                         LD      B,02H           ; 2ER SEQUENZ
+  EE11    70                            LD      (HL),B          ; SEQUENZ SETZEN
+                                        
+  EE12    3E 05                 CONIN3: LD      A,KANAL5
+  EE14    D3 19                         OUT     (SIOA+1),A
+  EE16    3E EA                         LD      A,REG5                  ; DTR =1
+  EE18    CB BF                         RES     7,A
+  EE1A    D3 19                         OUT     (SIOA+1),A
+  EE1C    C5                            PUSH    BC
+  EE1D    06 10                         LD      B,10H
+  EE1F                          CONIN33:
+  EE1F    0E 19                         LD C,SIOA+1
+  EE21    CD EDC2                       CALL TX2
+  EE24    CB 47                         BIT     0,A
+  EE26    20 07                         JR      NZ,CONIN4       ; PR]FE OB ZEICHEN DA ->JA
+  EE28    10 F5                         DJNZ    CONIN33
+  EE2A    C1                            POP     BC
+  EE2B    AF                            XOR     A
+  EE2C    77                            LD      (HL),A          ; SEQUENZ=0
+  EE2D    18 11                         JR      CONIN5          ; NEIN
+        MACRO-80 3.43   27-Jul-81       PAGE    1-14
+
+
+                                
+  EE2F    C1                    CONIN4: POP     BC
+  EE30    DB 18                         IN      A,(SIOA)        ; NEUES ZEICHEN
+                                ; CALL CONIN7           ; ZEICHEN GER / USA
+  EE32    DD 77 00                      LD      (IX+0),A
+  EE35    DD 23                         INC     IX
+  EE37    10 D9                         DJNZ    CONIN3
+  EE39    DD 7E FE                      LD      A,(IX-2)
+  EE3C    FE 30                         CP      "0"             ; FUNKTIONSTASTE
+  EE3E    28 2D                         JR      Z,CANGE
+  EE40    79                    CONIN5: LD      A,C
+  EE41    DD E1                         POP     IX
+  EE43    D1                            POP     DE
+  EE44    C9                            RET
+                                
+  EE45    35                    CONIN6: DEC     (HL)
+  EE46    3D                            DEC     A
+  EE47    21 EEF6                       LD      HL,CPUF+1
+  EE4A    16 00                         LD      D,0
+  EE4C    5F                            LD      E,A
+  EE4D    ED 52                         SBC     HL,DE
+  EE4F    4E                            LD      C,(HL)
+  EE50    18 EE                         JR      CONIN5
+                                
+                                ;--------------------------------
+                                ;   ZEICHEN GER/USA
+                                
+  EE52    E5                    CONIN7: PUSH    HL
+  EE53    D5                            PUSH    DE
+  EE54    21 EEE6                       LD      HL,GER          ; GER TABELLE
+  EE57    11 EED7                       LD      DE,USA          ; USA TABELLE
+  EE5A    4F                            LD      C,A
+  EE5B    1A                    TAS0:   LD      A,(DE)
+  EE5C    B9                            CP      C               ; VERGLEICHE MIT EINGABE
+  EE5D    28 0B                         JR      Z,TAS1          ; ZEICHEN GEFUNDEN
+  EE5F    23                            INC     HL
+  EE60    13                            INC     DE
+  EE61    1A                            LD      A,(DE)
+  EE62    FE FF                         CP      0FFH            ; PR]FE TEXTENDE
+  EE64    20 F5                         JR      NZ,TAS0         ; WEITERSUCHEN
+  EE66    79                            LD      A,C
+  EE67    D1                    TAS2:   POP     DE
+  EE68    E1                            POP     HL
+  EE69    C9                            RET
+                                
+  EE6A    7E                    TAS1:   LD      A,(HL)          ; IN GERM. ZEICHEN [NDERN
+  EE6B    18 FA                         JR      TAS2
+                                
+                                ;--------------------------------
+                                ;   ERKRNNUNG UND UMWANDLUNG DER KEYPAD TASTEN
+                                
+  EE6D    DD 46 FF              CANGE:  LD      B,(IX-1)        ; LETZTES ZEICHEN [NDERN
+  EE70    11 EEB2                       LD      DE,CTAB
+  EE73    1A                    CH1:    LD      A,(DE)
+  EE74    FE FF                         CP      0FFH            ; ENDE SCHLUSS?
+  EE76    20 04                         JR      NZ,CHOS
+        MACRO-80 3.43   27-Jul-81       PAGE    1-15
+
+
+                                        ; JA ZEICHEN NICHT GEFUNDEN, ANNULLIEREN
+  EE78    0E 00                         LD      C,0
+  EE7A    18 0C                         JR      CHOK1
+                                
+  EE7C    B8                    CHOS:   CP      B               ; GLEICHES ZEICHEN VON CTAB?
+  EE7D    28 04                         JR      Z,CHOK          ; JA
+  EE7F    13                            INC     DE
+  EE80    13                            INC     DE
+  EE81    18 F0                         JR      CH1
+                                
+  EE83    13                    CHOK:   INC     DE              ; ZEICHEN ERKANNT
+  EE84    1A                            LD      A,(DE)
+  EE85    D6 40                         SUB     40H             ; CONTROLL - ZEICHEN BILDEN
+  EE87    4F                            LD      C,A
+  EE88    AF                    CHOK1:  XOR     A
+  EE89    77                            LD      (HL),A          ; SEQ =0
+  EE8A    18 B4                         JR      CONIN5
+                                
+                                ;--------------------------------
+                                ;  PR]FE OB TESTE GEDR]CKT
+                                ;  JA: A=0FFH NEIN: A:00H
+                                
+  EE8C    3A EEF7               CONST:  LD      A,(SEQ)
+  EE8F    B7                            OR      A               ; SEQUENZ ?
+  EE90    20 1D                         JR      NZ,CONST1       ; JA
+  EE92    3E 05                         LD      A,KANAL5
+  EE94    D3 19                         OUT     (SIOA+1),A
+  EE96    3E EA                         LD      A,REG5                  ; DTR =1
+  EE98    CB BF                         RES     7,A
+  EE9A    D3 19                         OUT     (SIOA+1),A
+  EE9C    CD EDBC                       CALL    TXX
+  EE9F    06 30                         LD      B,030H
+  EEA1    0E 19                 CONW:   LD C,SIOA+1
+  EEA3    CD EDC2                       CALL TX2
+  EEA6    CB 47                         BIT     0,A             ; NEUES ZEICHEN?
+  EEA8    3E FF                         LD A,0FFH
+  EEAA    C0                            RET NZ
+  EEAB    10 F4                         DJNZ    CONW
+  EEAD    AF                            XOR     A               ; NEIN
+  EEAE    C9                            RET
+  EEAF    3E FF                 CONST1: LD A,0FFH
+  EEB1    C9                            RET
+                                
+  EEB2    74 53 76 44           CTAB:   DEFM    "tSvDxErXwAvFSGRVQNPYmClRuQMPnBoOaWsZ"
+  EEB6    78 45 72 58           
+  EEBA    77 41 76 46           
+  EEBE    53 47 52 56           
+  EEC2    51 4E 50 59           
+  EEC6    6D 43 6C 52           
+  EECA    75 51 4D 50           
+  EECE    6E 42 6F 4F           
+  EED2    61 57 73 5A           
+  EED6    FF                            DEFB    0FFH
+                                
+  EED7    40 5D 7D 3E           USA:    DEFB    040H,05DH,07DH,03EH,03CH,05AH,059H,07AH,079H,05CH,07CH,023H
+  EEDB    3C 5A 59 7A           
+        MACRO-80 3.43   27-Jul-81       PAGE    1-16
+
+
+  EEDF    79 5C 7C 23           
+  EEE3    1A 19 FF                      DEFB    01AH,019H,0FFH
+                                
+  EEE6    22 23 27 3A           GER:    DEFB    022H,023H,027H,03AH,03BH,059H,05AH,079H,07AH,03CH,03EH,07DH
+  EEEA    3B 59 5A 79           
+  EEEE    7A 3C 3E 7D           
+  EEF2    19 1A FF                      DEFB    019H,01AH,0FFH
+                                
+  EEF5    00 00                 CPUF:   DEFB    0,0
+  EEF7    00                    SEQ:    DEFB    0
+                                
+                                ;--------------------------------
+                                ;  LIST DRUCKERPROGRAMM
+                                ; GIBT ZEICHEN IN C AUF DRUCKER AUS
+                                ; WENN NICHT BEREIT , ABBRUCH MIT TASTE
+                                
+  EEF8    C5                    LIST:   PUSH    BC
+  EEF9    41                            LD      B,C             ; C = ZEICHEN ZUM DRUCKEN
+                                
+  EEFA    0E 00                 LISTA:  LD      C,0
+  EEFC    C5                            PUSH    BC
+  EEFD    CD EF09                       CALL    W0-1
+  EF00    C1                            POP     BC
+  EF01    78                            LD      A,B
+  EF02    D3 1A                         OUT     (SIOB),A
+  EF04    0E 80                         LD      C,080H
+                                ;       CALL    W0-1
+  EF06    AF                            XOR     A
+  EF07    C1                            POP     BC
+  EF08    C9                            RET
+                                
+  EF09    D5                            PUSH    DE
+  EF0A    16 00                 W0:     LD      D,0
+  EF0C    1E 00                 W1:     LD      E,0
+  EF0E    3E 10                         LD A,10H        ; SIO HANDSHAKE RESET DCD, CTS
+  EF10    0E 1B                         LD C,SIOB+1
+  EF12    ED 79                         OUT (C),A
+  EF14    CD EDC2                       CALL TX2
+  EF17    CB 5F                         BIT 3,A
+  EF19    20 1F                         JR NZ,W3            ; -> DRUCKER ONLINE
+  EF1B    1D                            DEC E
+  EF1C    20 F0                         JR NZ,W1+2
+  EF1E    15                            DEC D
+  EF1F    20 ED                         JR NZ,W1+2
+  EF21    CD EE8C                       CALL CONST           ; TASTENABFRAGE
+  EF24    B7                            OR      A
+  EF25    28 E3                         JR      Z,W0            ; -> TASTE NICHT GEDR]CKT
+  EF27    CD F820                       CALL    CONIN
+  EF2A    FE 1B                         CP      1BH             ; ESC
+  EF2C    20 DC                         JR      NZ,W0
+  EF2E    11 EF3D                       LD      DE,ERRTEX
+  EF31    CD ED95                       CALL    TEXOUT
+  EF34    D1                            POP     DE
+  EF35    C1                            POP     BC
+  EF36    C1                            POP     BC      ; FUER RETURN
+  EF37    C3 0000                       JP      0H
+        MACRO-80 3.43   27-Jul-81       PAGE    1-17
+
+
+                                
+  EF3A    D1                    W3:     POP     DE
+  EF3B    AF                            XOR     A
+  EF3C    C9                            RET
+                                
+  EF3D    07 07 07              ERRTEX: DEFB    7,7,7           ; BELL
+  EF40    44 72 75 63                   DEFM    'Drucker nicht bereit oder Fehler!'
+  EF44    6B 65 72 20           
+  EF48    6E 69 63 68           
+  EF4C    74 20 62 65           
+  EF50    72 65 69 74           
+  EF54    20 6F 64 65           
+  EF58    72 20 46 65           
+  EF5C    68 6C 65 72           
+  EF60    21                    
+  EF61    0A 00 FF FF                   DEFB    0AH,0D,0FFH,0FFH
+                                
+  EF65    C5                    LISTST: PUSH    BC
+  EF66    0E 1B                         LD C,SIOB+1
+  EF68    3E 10                         LD A,10H        ; SIO HANDSHAKE RESET DCD, CTS
+  EF6A    ED 79                         OUT (C),A
+  EF6C    CD EDC2                       CALL TX2
+  EF6F    0E 00                         LD      C,0
+  EF71    CB 5F                         BIT     3,A
+  EF73    28 04                         JR      Z,NOT
+  EF75    3E FF                         LD      A,0FFH
+  EF77    C1                            POP     BC
+  EF78    C9                            RET
+                                
+  EF79    AF                    NOT:    XOR     A
+  EF7A    C1                            POP     BC
+  EF7B    C9                            RET
+                                
+                                ;-----------------------------
+                                
+  EF7C    C9                    PUNCH:  RET
+                                
+  EF7D    3E 1A                 READER::LD A,1AH
+  EF7F    C9                            RET
+                                
+                                ;---------------------------------------------------------------------------
+  EF80                          SEKDSK: DEFS 1          ;CP/M DSK NR.
+  EF81                          SEKTRK: DEFS 2          ;.... TRACK NR.
+  EF83                          SEKSEC: DEFS 1          ;.... SECTORNR.
+                                
+  EF84                          SEKHST: DEFS 1          ;HOST DSK NR.
+  EF85                          HSTACT: DEFS 1          ;HOST ACTIV FLAG
+  EF86                          HSTWRT: DEFS 1          ;HOST SCHREIB FLAG
+  EF87                          UNACNT: DEFS 1          ;BLOCKSEKTORZAEHLER
+  EF88                          UNADSK: DEFS 1          ;LETZTE DSK MIT BLOCKZUGRIFF
+  EF89                          UNATRK: DEFS 2          ;LETZTE SPUR MIT BLOCKZUGRFF
+  EF8B                          UNASEC: DEFS 1          ;LETZTER SEKTOR MIT BLOCKZUGRIFF
+                                
+  EF8C                          ERFLAG: DEFS 1
+  EF8D                          RSFLAG: DEFS 1          ;READ SECTOR FLAG
+  EF8E                          READOP: DEFS 1          ;1 BEI LESEZUGRIFF
+        MACRO-80 3.43   27-Jul-81       PAGE    1-18
+
+
+  EF8F                          WRTYPE: DEFS 1          ;SEKTOR SCHREIBMODUS
+  EF90                          DMAAD:  DEFS 2          ; LETZTE DMAADR.
+                                
+  EF92                          CSV0:   DEFS 64D
+  EFD2                          CSV1:   DEFS 128D
+  F052                          CSV2:   DEFS 128D
+  F0D2                          ALV0:   DEFS 265D
+  F1DB                          ALV1:   DEFS 128D
+  F25B                          ALV2:   DEFS 128D
+                                
+  F2DB                          DIRBUF: DEFS 128D
+  F35B                          HSTBUF: DEFS 1
+                                
+                                END
+        MACRO-80 3.43   27-Jul-81       PAGE    S
+
+
+Macros:
+
+Symbols:
+EC29    ALLOC           F0D2    ALV0            F1DB    ALV1            
+F25B    ALV2            DC06    BDOS            EA00I   BIOS            
+EAB8I   BLKL1           EAB9I   BLKL2           EABAI   BLKL3           
+EABBI   BLKL4           EABCI   BLKL5           EABDI   BLKL6           
+EA96I   BLKM1           EAA5I   BLKM2           EA95I   BLKV1           
+EAA4I   BLKV2           EAB1I   BLSIZ1          EAB2I   BLSIZ2          
+EAB3I   BLSIZ3          EAB4I   BLSIZ4          EAB5I   BLSIZ5          
+EAB6I   BLSIZ6          EAC5    BOOT            FFA6    BOOTDR          
+EE6D    CANGE           EB9B    CBLK            D400    CCP             
+EE73    CH1             EBDF    CHKUNA          EE83    CHOK            
+EE88    CHOK1           EE7C    CHOS            F820    CONIN           
+EDE7    CONIN1          EE08    CONIN2          EE12    CONIN3          
+EE1F    CONIN33         EE2F    CONIN4          EE40    CONIN5          
+EE45    CONIN6          EE52    CONIN7          F81D    CONOUT          
+EE8C    CONST           EEAF    CONST1          EEA1    CONW            
+EEF5    CPUF            EF92    CSV0            EFD2    CSV1            
+F052    CSV2            EEB2    CTAB            EA9EI   DC1             
+EAADI   DC2             EA9AI   DE1             EAA9I   DE2             
+F2DB    DIRBUF          EA9CI   DM1             EAABI   DM2             
+FFF3    DMA             EF90    DMAAD           EA93I   DPB1            
+EAA2I   DPB2            EA33    DPBASE          FFAE    DRIVE           
+0006    DRVS            EA97I   EM1             EAA6I   EM2             
+FFF5    ENA             EF8C    ERFLAG          EF3D    ERRTEX          
+EC77    FILHST          FFF0    FIRST           EADE    GCPM            
+EEE6    GER             EB66    HOME            EB72    HOMED           
+F81A    HOMEF           EAC4I   HSSKEW          EF85    HSTACT          
+FFC0    HSTB            F35B    HSTBUF          FFA7    HSTDMA          
+FFAD    HSTDSK          FFA9    HSTSEC          EAC1I   HSTSIZ          
+EAC3I   HSTSPT          FFAB    HSTTRK          EF86    HSTWRT          
+EC44    INCH            0000    KANAL0          0001    KANAL1          
+0003    KANAL3          0004    KANAL4          0005    KANAL5          
+EA98I   KAP1            EAA7I   KAP2            F82C    LCDOUT          
+EEF8    LIST            EEFA    LISTA           EF65    LISTST          
+EC94    MATCH           ED54    MELDTXT         FFB0    NBUF            
+EDA8    NEWL            EC70    NOMATCH         EC23    NOOVF           
+EF79    NOT             EB60    OK              001C    PIOA            
+001E    PIOB            EF7C    PUNCH           00C1    RE3             
+EBA4I   READ            EF7DI   READER          ED00    READHST         
+EF8E    READOP          F814    READP           0000    REG1            
+0044    REG4            00EA    REG5            EF8D    RSFLAG          
+EAA0I   RT1             EAAFI   RT2             ECC6    RWMOVE          
+EC31    RWOPER          FFF1    SA              FFF9    SECL            
+EB98I   SECTRAN         EF80    SEKDSK          EF84    SEKHST          
+EF83    SEKSEC          ED22    SEKTRA          EF81    SEKTRK          
+EB7D    SELDS1          EB73I   SELDSK          EEF7    SEQ             
+EB93    SETDMA          EB8E    SETSEC          EB89    SETTRK          
+0018    SIOA            001A    SIOB            0018    SIORES          
+FFF2    SM              FFF7    STARTA          FFAF    STATUS          
+ED3D    STEP1           ED49    STEP2           FFB7    STEPR           
+EAC0I   STEPRM          EE5B    TAS0            EE6A    TAS1            
+EE67    TAS2            ED9F    TEX1            ED95    TEXOUT          
+EABEI   TRACKA          EABFI   TRACKB          FFA5    TRACKH          
+FFA4    TRACKL          FFB6    TRACKN          EDC2    TX2             
+EDBC    TXX             EF87    UNACNT          EF88    UNADSK          
+        MACRO-80 3.43   27-Jul-81       PAGE    S-1
+
+
+EF8B    UNASEC          EF89    UNATRK          EED7    USA             
+EF0A    W0              EF0C    W1              EF3A    W3              
+EB0FI   WBOOT           EB29    WBOOT1          EB58    WBOOT2          
+0000    WRALL           0001    WRDIR           EBB8I   WRITE           
+ECDE    WRITHST         F817    WRITP           EF8F    WRTYPE          
+0002    WRUAL           FFF0    ZDTIME          
+
+
+
+No Fatal error(s)
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
