@@ -1,0 +1,1152 @@
+       ;-------------------------------------
+       ; Winterhalter CPU-System neu
+       ; Entwicklungssystem
+       ;-------------------------
+       ;  BIOS F]R HW-CPU
+       ;  PROZESSOR 84C015
+       ;  MIT 128k RAM 32k EPROM 2K I/O RAM UHR
+       ;  FDC, IDE, ECB-BUS
+       ;
+        ;  AUTOR : Hansj|rg Winterhalter
+        ;  VERs. 1.0 VOM                        16.06.2003
+        ;  SD-KARTE  1.0                        19.11.2006
+        ;  LW IDE-HD: IDE CONTROLLER-KARTE      21.06.2009
+        ; ERWEITERUNG FUER HDD LBA-MODEN 16BIT  14.09.2016
+        ; NACHTRAG ERROR WRITE EXTERN           30.12.2016
+       ;
+       ;  SD-KARTE ADRESSE IN B\CKE AUFGETEILT NICHT MEHR SEQUENZIAL 30.05.08
+       ;  SEKTOR, TRACK AUS 16BIT UMSTELLEN  05.06.2016
+        ; MMC SEC/TRK BERECHNUNG LINEAR 1,2,3,4,5 AUFSTEIGEND 30.09.2017
+       ;-------------------------------
+
+ASEG
+
+.Z80
+
+;.SFCOND
+
+ORG 0H
+
+;DISPLAY EQU 1          ; 1= MIT DISPLAY
+
+RAMSTART EQU 0000H
+
+;  SET CP/M LOW MEMORY DATA, VECTOR AND BUFFER ADDRESS
+
+IOBYTE  EQU RAMSTART + 03H
+USRDRV  EQU RAMSTART + 04H
+BDOSEN  EQU RAMSTART + 05H
+TPAFCB  EQU RAMSTART + 5CH
+TPABUF  EQU RAMSTART + 80H
+
+RAM     EQU RAMSTART + 8000H
+
+;--------------------------
+; PERIPFERIE I/O ADDRESS
+CTC     EQU 10H         ; CTC   84C30A
+SIOA    EQU 18H         ; SIO A 84C43
+SIOB    EQU 1AH         ; SIO B
+PIOA    EQU 1CH         ; PIO A 84C20A
+PIOB    EQU 1EH         ; PIO B
+WDTCR   EQU 0F0H        ; WATCH DOG TIMER
+WDTER   EQU 0F1H
+DCI     EQU 0F4H        ; DAISY-CAINE-INTERRUPT
+LATCH   EQU 0F5H        ; I/O ADRESSE A8-A15 EXTERN
+
+FDC     EQU 20H         ; SD-KARTE
+LCD     EQU 60H         ; LCD-DISPLAY
+URCS    EQU 80H         ; 2K IO-RAM MIT UHR
+
+IDE     EQU 0F0H        ; FESTPLATTE
+IDEDOR  EQU IDE+6       ; DIGITAL OUTPUT REGISTER
+IDEDAT  EQU IDE+8       ; DATA REGISTER
+IDEERR  EQU IDE+9       ; ERROR REGISTER
+IDESCNT EQU IDE+0AH     ; SEKTOR COUNT
+IDESNUM EQU IDE+0BH     ; SEKTOR NUMBER
+IDECLO  EQU IDE+0CH     ; CYLINDER LOW
+IDECHI  EQU IDE+0DH     ; CYLINDER HIGH
+IDESDH  EQU IDE+0EH     ; DRIVE AND HEAD
+IDECMD  EQU IDE+0FH     ; COMMAND
+IDESTAT EQU IDECMD      ; STATUS
+
+EOFF    EQU 40          ; BIT 6=1 PORT A EPROM AUS RAM <32K AKTIV
+EON     EQU 0           ; BIT 6=0 PORT A EPROM EIN RAM <32K WRITE
+RAMH    EQU 61H         ; BIT1,5 AN PIO A BANK 1 + EPROM AUS / INTERN
+RAML    EQU 40H         ; BIT1,5 AN PIO A BANK 0 + EPROM AUS / INTERN
+
+        ;-------------------------
+        ; IDE COMMANDOS
+
+CMD_READSEC     EQU 20H
+CMD_WRITESEC    EQU 30H
+CMD_SEEK        EQU 70H
+CMD_DIAGN       EQU 90H
+CMD_INITIA      EQU 91H
+CMD_IDENT       EQU 0ECH
+        ;-----------------------------
+        ; MMC INTERFACE INIT
+
+GO_IDLE_STATE   EQU 40H
+SEND_OP_COND    EQU 41H
+SDBLOCK         EQU 50H
+READ_SINGLE_BLOCK       EQU 51H
+WRITE_BLOCK     EQU 58H
+            ;------------------------
+            ;    CTC-COMMANDOS
+            ;------------------------
+
+BAUD1   EQU 47H         ; 9600
+TIME1   EQU 04H         ; TIME CONSTANTE
+
+BAUD2   EQU 47H         ; TGOUT 1: 2
+TIME2   EQU 04H         ;
+
+BAUD3   EQU 47H         ; TGOUT 1: 2
+TIME3   EQU 04H         ;
+
+BAUD4   EQU 47H         ; MIT INT =0E7H TGOUT
+TIME4   EQU 0FFH        ;
+
+MSTIME  EQU 80H         ; 416,6667us * MSTIME
+EXOFF   EQU 60H         ; OFFSET SIO, CTC EXTEN
+
+            ;------------------------
+            ;    SIO-COMMANDOS
+            ;------------------------
+
+SIORES  EQU 18H         ; SIO RESET
+KANAL4  EQU 04H         ; REG 4
+REG4    EQU 44H         ; X16 CLOCK,8,SYNC
+KANAL3  EQU 03H         ; REG 3
+REG3    EQU 0C1H        ; 8 BIT, RxENABLE
+KANAL5  EQU 05H         ; REG 5
+REG5    EQU 0EAH        ; DTR, Tx8BIT, TxENABLE
+KANAL1  EQU 01H         ; REG 1
+REG1    EQU 00H         ; NO INT
+KANAL0  EQU 00H         ; REG 0
+            ;----------------
+            ; PORT A BIT 0 - 7 SELEKT
+            ;----------------
+
+QA7     EQU 7H          ; IORQ =0 INT., 1= EXT.
+ELATCH  EQU 6H          ; EPROM=0, RAM=1
+TA16    EQU 5H          ; RAM 64K BANK 0=LOW, >64K 1=HIGH
+FREI    EQU 4H          ; FREI  DA KEIN -> SCSI RESRI
+RFDC    EQU 3H          ; FLOPPY RESET
+RT      EQU 2H          ; AN PAL PIN 9
+NC      EQU 1H          ; NC
+TAS     EQU 0H          ; ZU 64K BANKUNSCHALTUNG
+
+;------------------------
+;      START
+;------------------------
+; TESTPROGRAMM F]R 84C015 CPU
+;------------------------
+
+        DI
+        JP LOS
+        NOP
+;---------------------------------
+; EIGENE BIOS SPRUNGTABELLE 0005H
+
+
+;INCLUDE CONSOLE.MAC
+SIOEX   EQU 60H         ; OFSET ZU SIO INTERN = EXTERN
+
+;-----------------------------
+; SIOA, SIOB ADRESSE TASK HIGH
+        ; SIO A
+
+SIOX:   LD      (STACK),SP
+        IM 2
+;INT    EI
+        REPT 5
+        NOP
+        ENDM
+        DI
+        LD      IX,(STACK)
+        LD      SP,IX
+        IN      A,(PIOA)
+        BIT     TA16,A          ; BANK0=LX, BANK1=HX
+        JR      NZ,SIOX1        ; EXTERN ->
+        LD      C,SIOA          ; FUER INTERN
+        RET
+        ;------------------
+
+SIOX1:  LD      C,SIOA+SIOEX    ; FUER EXTERN
+        JR      SIOX2
+        ;--------------
+        ; SIO B
+SIOY:   LD      (STACK),SP
+        IM 2
+;INT    EI
+        REPT 5
+        NOP
+        ENDM
+        DI
+        LD      IX,(STACK)
+        LD      SP,IX
+        IN      A,(PIOA)
+        BIT     TA16,A
+        JR      NZ,SIOY1        ; EXTERN ->
+        LD      C,SIOB          ; FUER INTERN
+        RET
+        ;---------
+        ; EXTERN UNSCHALTEN
+SIOY1:  LD      C,SIOB+SIOEX    ; FUER EXTERN
+SIOX2:  SET     7,A             ; SET EXTERN
+        OUT     (PIOA),A
+        LD      A,02H           ; SIO KARTE 2
+        OUT     (LATCH),A
+        RET
+
+;-----------------------------
+; TX BUFFER LEER PR]FEN
+; ZEICHEN IN C AUSGEBEN
+
+OUT0:   PUSH BC
+        CALL KEYRD
+        LD      A,E
+        DEC     C
+        OUT     (C),A           ; ZEICHEN AUSGEBEN
+        POP     BC
+        RET
+
+;--------------------------------
+; KEYREADY
+
+KEYRD:  CALL    SIOX
+        INC     C
+        LD      A,KANAL5
+        OUT     (C),A
+        LD      A,REG5
+        RES     7,A             ; DTR LOW
+        OUT     (C),A
+;----------------
+; PR]FE OB ZEICHEN ]BERTRAGEN UND BUFFER LEER IST
+
+TX2:    IN      A,(C)
+        BIT     2,A             ; TRANSMISSION BUFFER EMPTY
+        JR      Z,TX2
+        RET
+
+;--------------------------------
+; RX BUFFER LEER PR]FEN
+
+INP0:   PUSH BC
+INP1:   CALL KEYRD
+        BIT 0,A         ; AUS TX2:
+        JR Z,INP2       ; PRUEFE OB ZEICHEN DA ->NEIN
+        DEC C
+        IN A,(C)        ; SIOA ZEICHEN HOLEN
+        LD C,A
+        PUSH BC
+        CALL SIOX
+        INC C
+        LD A,KANAL5
+        OUT (C),A
+        LD A,REG5
+        RES 7,A         ; DTR HIGH
+        OUT (C),A
+        POP BC
+        LD A,C
+        POP BC
+        LD C,A
+        RET
+        ;----------
+INP2:   LD      A,KANAL5
+        OUT     (C),A
+        LD      A,REG5
+        SET     7,A             ; DTR HIGH
+        OUT     (C),A
+        JR INP1
+
+;--------------------------------
+;  PR]FE OB TESTE GEDR]CKT
+;  JA: A=0FFH NEIN: A:00H
+
+PKEY:   PUSH BC
+        CALL SIOX
+        INC C
+        LD B,04
+CONW:   CALL TX2
+        PUSH AF
+        LD      A,KANAL5
+        OUT     (C),A
+        LD      A,REG5
+        SET     7,A             ; DTR HIGH
+        OUT     (C),A
+        POP AF
+        BIT 0,A
+        LD A,0FFH
+        JR NZ,CONW1             ; -> TASTE GEDRUECKT
+        DJNZ CONW
+        XOR A                   ; KEINE TASTE
+CONW1:  PUSH AF
+        LD      A,KANAL5
+        OUT     (C),A
+        LD      A,REG5
+        RES     7,A             ; DTR HIGH
+        OUT     (C),A
+        POP AF
+        POP BC
+        CP 0            ; AUS A
+        LD C,A
+        RET
+
+;--------------------------------
+;  LIST DRUCKERPROGRAMM
+; GIBT ZEICHEN IN C AUF DRUCKER AUS
+; WENN NICHT BEREIT , ABBRUCH MIT TASTE
+
+PRINT:  PUSH    BC
+LISTA:  CALL    W00
+        POP BC
+        LD B,C                  ; C = ZEICHEN ZUM DRUCKEN
+        PUSH BC
+        CALL    SIOY
+        LD      A,B
+        OUT     (C),A           ; ZEICHEN DRUCKEN
+        POP     BC
+        XOR     A               ; Z=0 OK.
+        RET
+        ;-------------------
+W00:    PUSH    DE
+        PUSH    HL
+W0:     CALL SIOY
+        INC C
+        LD      DE,0000H        ; TIMEOUT
+W1:     LD      A,10H           ; SET SIO REG. FUER DCD, CTS
+        OUT     (C),A
+        CALL    TX2             ; READ SIO REG. 0
+        BIT     3,A             ; DCD
+        JR      NZ,W3           ; -> DRUCKER ONLINE
+        DEC     E
+        JR      NZ,W1
+        DEC     D
+        JR      NZ,W1
+        CALL PKEY
+        JR Z,W0                 ; KEINE TASTE
+        CALL INP0               ; ZEICHEN READ
+        CP 1BH                  ; ESC
+        JR NZ,W0
+        LD HL,ERRTEX
+W4:     LD E,(HL)
+        LD A,E
+        CP 0FFH
+        JR Z,W5
+        CALL OUT0
+        INC HL
+        JR W4
+        ;------------
+W5:     POP     HL
+        POP     DE
+        POP     BC
+        LD A,01
+        INC A           ; Z=1
+        RET
+        ;-----------
+W3:     POP HL
+        POP DE
+        RET             ; ZEICHEN AUSGEBEN
+        ;------------
+
+ERRTEX: DEFB    0AH,0DH,7,7,7           ; CR,LF,BELL
+        DEFM    'Drucker nicht bereit oder Fehler!'
+        DEFB    0AH,0DH,7,7,7,0FFH,0FFH
+
+PLISTST: PUSH    BC
+        CALL SIOY
+        INC C
+        LD A,10H        ; SIO HANDSHAKE RESET DCD, CTS
+        OUT (C),A
+        CALL TX2
+        LD      C,0
+        BIT     3,A
+        JR      Z,NOT
+        LD      A,0FFH
+        POP     BC
+        RET
+
+NOT:    XOR     A
+        POP     BC
+        RET
+
+;---------------------------------
+; PIO INIT PORT A
+; PA0,BAI1,RT,/RFDC,RSCS,TA16,LATCH,QA7
+; PIO INIT PORT B
+; PCU,U1,U2,U3,U4,U5,ND, (NC)
+
+LOS:    LD SP,0B000H
+        IM 2
+        ;---------------
+        ; PORT A
+        LD      A,0FH           ; MODE 0 ALS AUSGANG
+        OUT     (PIOA+1),A
+        LD      A,07H           ; KEIN INTERRUPT
+        OUT     (PIOA+1),A
+        XOR     A
+        OUT     (PIOA),A        ; PIOA = 00H, EPROM ON
+
+        ; PORT B
+        LD      A,0FH           ; MODE 0 ALS AUSGANG
+        OUT     (PIOB+1),A
+        LD      A,07H           ; KEIN INTERRUPT
+        OUT     (PIOB+1),A
+        LD      A,1FH           ; FUER UHR SRAM
+        OUT     (PIOB),A        ; PIOB =00H
+        LD      A,MSTIME        ; SET INT INTERVAL H<-> L
+        OUT     (URCS+1FH),A
+        XOR     A
+        OUT     (PIOB),A        ;  PIO B =00H
+
+;-------------------------------
+; NOCH IM EPROM
+;   EPROM NACH SRAM BANK1 KOPIEREN 1:1
+
+        LD HL,0000H             ; PROG.ADR. QUELLE EPROM
+        LD DE,0000H             ; ZIEL RAM
+        LD BC,08000H            ; PROG. L[NGE 32K
+        LDIR                    ; ]BERTRGEN IN RAM BANK0
+
+        IN A,(PIOA)
+        SET TAS,A
+        OUT (PIOA),A            ; SET SRAM WR=BANK1
+
+;   EPROM NACH SRAM BANK2 KOPIEREN 1:1
+
+        LD HL,0000H             ; PROG.ADR. QUELLE EPROM
+        LD DE,0000H             ; ZIEL RAM
+        LD BC,08000H            ; PROG. L[NGE 32K
+        LDIR                    ; ]BERTRGEN IN RAM BANK1
+
+;-------------------------------
+;   EPROM AUSSCHALTEN , AB HIER IM RAM
+
+        XOR A
+        OUT (PIOA),A            ; BANK0
+
+;****************
+; AB HIER IM SRAM
+;---------------------------------
+; CTC0 INIT :16=6,51us
+
+        LD A,BAUD1
+        OUT (CTC),A     ; REG 0
+        LD A,TIME1
+        OUT (CTC),A
+
+;---------------------------------
+;  LCD SET
+
+LCDS:   LD A,80H        ; COMMAND MODE=OR-MODE & INTERNAL
+        CALL LCD1       ; COMMAND MODE = OR-MODE & INTERNAL CG-ROM
+
+        ; GRAPHIC HOME ADRESS
+
+        LD A,00
+        CALL LCD0
+        LD A,00H
+        CALL LCD0
+
+        ; GRAPHIC HOME AREA
+        LD A,42H
+        CALL LCD1
+        LD A,1EH
+        CALL LCD0
+        LD A,00H
+        CALL LCD0
+
+        ; TEXT HOME ADRESSE
+        LD A,43H
+        CALL LCD1
+        LD A,00H
+        CALL LCD0
+        LD A,0FH
+        CALL LCD0
+
+        ; TEXT AREA
+        LD A,40H
+        CALL LCD1
+        LD A,1EH
+        CALL LCD0
+        LD A,00H
+        CALL LCD0
+
+        LD A,41H
+        CALL LCD1
+
+        LD A,94H
+        CALL LCD1
+
+;-------------------------
+;  WATCHDOG INIT
+
+        LD A,0DBH       ; TC= 2^22
+;       OUT (WDTCR),A
+        LD A,0FBH
+;       OUT (WDTER),A
+
+;------------------------
+; CTC 84C30 INIT
+;       KANAL 1
+
+SIOS:
+;       KANAL 2
+        LD A,BAUD2
+        OUT (CTC+1),A
+        LD A,TIME2
+        OUT (CTC+1),A
+
+;       KANAL 3
+        LD A,BAUD3
+        OUT (CTC+2),A
+        LD A,TIME3
+        OUT (CTC+2),A
+
+;   SIO 84C40 - 43  INIT
+        LD A,SIORES
+        OUT (SIOA+1),A          ; RESER SIO A
+        OUT (SIOB+1),A          ; RESET SIO B
+
+        LD A,KANAL4             ; REG 4
+        OUT (SIOA+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+1),A          ; REG.SELECT SIO B
+
+        LD A,REG4
+        OUT (SIOA+1),A          ; DATA SIO A
+        OUT (SIOB+1),A          ; DATA SIO B
+
+        LD A,KANAL3             ; REG 3
+        OUT (SIOA+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+1),A          ; REG.SELECT SIO B
+
+        LD A,REG3
+        OUT (SIOA+1),A          ; DATA SIO A
+        OUT (SIOB+1),A          ; DATA SIO B
+
+        LD A,KANAL5             ; REG 5
+        OUT (SIOA+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+1),A          ; REG.SELECT SIO B
+
+        LD A,REG5
+        OUT (SIOA+1),A          ; DATA SIO A
+        OUT (SIOB+1),A          ; DATA SIO B
+
+        LD A,KANAL1             ; REG 1
+        OUT (SIOA+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+1),A          ; REG.SELECT SIO B
+
+        LD A,REG1
+        OUT (SIOA+1),A          ; DATA SIO A
+        OUT (SIOB+1),A          ; DATA SIO B
+
+        LD A,00H
+        OUT (SIOA+1),A
+        OUT (SIOB+1),A
+
+;------------------------
+; CTC 84C30 EXTERN
+;       KANAL 1
+
+        IN A,(PIOA)
+        SET QA7,A
+        OUT (PIOA),A            ; EXTERN I/O
+        LD A,02H
+        OUT (LATCH),A   ; KARTE 02 FREISCHALTEN
+
+;---------------------
+        LD A,BAUD1
+        OUT (CTC+EXOFF),A     ; REG 0
+        LD A,TIME1
+        OUT (CTC+EXOFF),A
+
+;       KANAL 2
+        LD A,BAUD2
+        OUT (CTC+EXOFF+1),A
+        LD A,TIME2
+        OUT (CTC+EXOFF+1),A
+
+;       KANAL 3
+        LD A,BAUD3
+        OUT (CTC+EXOFF+2),A
+        LD A,TIME3
+        OUT (CTC+EXOFF+2),A
+
+;   SIO 84C40 - 43  EXTERN
+        LD A,SIORES
+        OUT (SIOA+EXOFF+1),A          ; RESER SIO A
+        OUT (SIOB+EXOFF+1),A          ; RESET SIO B
+
+        LD A,KANAL4             ; REG 4
+        OUT (SIOA+EXOFF+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+EXOFF+1),A          ; REG.SELECT SIO B
+
+        LD A,REG4
+        OUT (SIOA+EXOFF+1),A          ; DATA SIO A
+        OUT (SIOB+EXOFF+1),A          ; DATA SIO B
+
+        LD A,KANAL3             ; REG 3
+        OUT (SIOA+EXOFF+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+EXOFF+1),A          ; REG.SELECT SIO B
+
+        LD A,REG3
+        OUT (SIOA+EXOFF+1),A          ; DATA SIO A
+        OUT (SIOB+EXOFF+1),A          ; DATA SIO B
+
+        LD A,KANAL5             ; REG 5
+        OUT (SIOA+EXOFF+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+EXOFF+1),A          ; REG.SELECT SIO B
+
+        LD A,REG5
+        OUT (SIOA+EXOFF+1),A          ; DATA SIO A
+        OUT (SIOB+EXOFF+1),A          ; DATA SIO B
+
+        LD A,KANAL1             ; REG 1
+        OUT (SIOA+EXOFF+1),A          ; REG.SELECT SIO A
+        OUT (SIOB+EXOFF+1),A          ; REG.SELECT SIO B
+
+        LD A,REG1
+        OUT (SIOA+EXOFF+1),A          ; DATA SIO A
+        OUT (SIOB+EXOFF+1),A          ; DATA SIO B
+
+        LD A,00H
+        OUT (SIOA+EXOFF+1),A
+        OUT (SIOB+EXOFF+1),A
+
+        LD A,49H
+        OUT (SIOA+EXOFF),A
+        OUT (SIOB+EXOFF),A
+
+        XOR A
+        OUT (PIOA),A            ; BANK0
+
+;---------------------------------
+
+        CALL LCR        ; CLEAD LCD
+
+        ; SETZE CURSOR HOME X, Y
+        LD A,1EH
+        CALL LCD0
+        LD A,0FH
+        CALL LCD0
+        LD A,24H
+        CALL LCD1
+
+        LD B,TXL
+        LD HL,TEX
+        CALL LCD00
+
+        JP BIOS
+
+;-------------------------------
+; STARTTEXT AUF LCD AUSGEBEN
+;-------------------------------
+
+LCD00:  LD A,(HL)
+        SUB 20H
+        CALL LCD0
+        LD A,0C0H
+        CALL LCD1
+        INC HL
+        DJNZ LCD00
+        RET
+
+;------------------------------
+; LCD READY
+
+LCD0:   OUT (LCD),A
+        JR LCDRY
+
+LCD1:   OUT (LCD+1),A
+
+LCDRY:  PUSH BC
+        LD B,10H
+LCDRY0: IN A,(CTC)
+        CP C
+        JR Z,LCDRY0
+        LD C,A
+LCDRY1: IN A,(LCD+1)    ; READ COMMAND
+        CP 80H
+        JR Z,LCDRY2
+        DJNZ LCDRY0
+        SCF             ; ERROR SET CARRY
+LCDRY2: POP BC
+        RET
+        ;-------------
+
+LCR:    LD B,03H
+        LD C,40H
+        LD A,00H
+        CALL LCD0
+        LD A,0FH
+        CALL LCD0
+        LD A,24H
+        CALL LCD1
+CR1:    LD A,00H
+        CALL LCD0
+        LD A,0C0H
+        CALL LCD1
+        DEC C
+        JR NZ,CR1
+        DJNZ CR1
+        RET
+
+;-------------------------------
+; TEXTAUSGABE AUF LCD
+; SETZE CURSOR HOME X, Y
+
+LPOS:   ;LD A,5AH
+        CALL LCD0
+        LD A,0FH
+        CALL LCD0
+        LD A,24H
+        CALL LCD1
+
+        LD B,TDRV
+        LD HL,TEXDR     ; TEST AUSGEBEN
+        JR LCD00
+
+;--------------------------
+
+LHEX:   PUSH AF
+        PUSH BC
+        PUSH HL
+        LD B,A
+        RRA
+        RRA
+        RRA
+        RRA
+        CALL LHEX1
+        LD A,B
+        CALL LHEX1
+        LD A,2EH
+        CALL LHEX2
+        POP HL
+        POP BC
+        POP AF
+        RET
+
+;-------------------------
+LHEX1:  AND 0FH
+        ADD A,30H
+        CP 3AH
+        JR C,LHEX2
+        ADD A,07H
+LHEX2:  SUB 20H
+        CALL LCD0
+        LD A,0C0H
+        CALL LCD1
+        RET
+
+;--------------------------
+
+TEX:    DEFM '128x128 LCD-DISPLAY '
+TXL     EQU $-TEX
+
+TEXDR:  DEFM 'SEC= 0'
+TDRV    EQU $-TEXDR
+        DEFB 0FFH
+
+;-------------------------------
+;
+
+STEX:   DEFM 'Bios Start 16.06.07 -> 28.09.15'
+LSTEX   EQU $-STEX
+
+ETEX:   DEFM 'Ende Uebertragung!  '
+LETEX   EQU $-ETEX
+
+SDNEU:  DEFM 'MMC-Karte Reset     '
+SDOK:   DEFM 'MMC ON              '
+LSDOK   EQU $-SDOK
+
+;--------------------------------
+; NOCH PR]FEN
+
+TSP     EQU 0FFA0H      ; TASK STACK
+TASKSP  EQU TSP+2
+TRACKL  EQU TASKSP+2    ; 0FFA4H
+TRACKH  EQU TRACKL+1    ; ERWEITERUNG F]R MMC - KARTE > 33MB
+HSTDMA  EQU TRACKH+1    ; BUFFER PORT A (PAL)
+HSTSEC  EQU HSTDMA+2
+HSTTRK  EQU HSTSEC+2
+HSTDSK  EQU HSTTRK+2
+DRIVE   EQU HSTDSK+1
+TRACKN  EQU DRIVE+1
+STATUS  EQU TRACKN+1
+NBUF    EQU STATUS+1
+SECBUF  EQU NBUF+6
+SEKTORLL        EQU SECBUF+2
+SEKTORLH        EQU SEKTORLL+1
+SEKTORHL        EQU SEKTORLH+1
+SEKTORHH        EQU SEKTORHL+1
+
+;----------------------
+; BIOS EPROM SP
+
+BIOSSP  EQU 0FFEFH      ; BEI SPRUNG AUS BIOS INS EPROM
+
+;----------------------
+; BOOT PARAMETER
+
+FIRST   EQU 0FFF0H      ; 0FFF0H ERSTE SPUR
+SA      EQU FIRST+1     ; 0FFF1H ERSTER SECTOR
+SM      EQU SA+1        ; 0FFF2H SEKT/TR
+DMA     EQU SM+1        ; 0FFF3H ANFANGSADR.
+ENA     EQU DMA+2       ; 0FFF5H ENDADR.
+STARTA  EQU ENA+2       ; 0FFF7H STARTADR.
+SECL    EQU STARTA+2    ; 0FFF9H SEKTORL[NGE
+
+DRVS    EQU 07H         ; ANZAHL DER LAUFWERKE
+SECSIZE EQU 0200H       ; 512B  C=LOW , B=HIGH
+
+;*********************************
+; EPROM ]BERTRAGEN IN RAM (F800H=
+
+        ; KOPIERE NACH RAM LH BANK1
+BIOS:   LD HL,START             ; PROG.ADR. QUELLE
+        LD DE,B1                ; ZIEL RAM
+        LD BC,07EBH             ; PROG. L[NGE FFFFH - START(F814)
+        LDIR                    ; ]BERTRGEN NACH LOW BANK0
+
+        ;-----------------------
+        ; IN BANK1 HIGH SCHREIBEN
+        IN A,(PIOA)             ; SRAM UMSCHALTEN AUF HH WRITE
+        RES TAS,A
+        SET TA16,A
+        OUT (PIOA),A            ; BANK1 HIGH WR EIN
+
+        ;KOPIERE VOM LL NACH RAM HH BANK2
+        LD HL,START             ; PROG.ADR. QUELLE
+        LD DE,B1                ; ZIEL RAM
+        LD BC,07EBH             ; PROG. L[NGE
+        LDIR                    ; ]BERTRGEN NACH HIGH BANK2
+
+        ;--------------------------
+        ; ZUR]CK NACH BANK0 LOW
+        ; STACK AUF BANK HIGH SICHERN
+        ; R]CKSPRUNGDATEN AUS HIGH INT.
+
+        LD SP,9000H
+        LD HL,BOOT1
+        PUSH HL         ; RETI R]CKSPRUNGADRESSE
+        PUSH IX         ; INHALT RETTEN
+        LD (TSP),SP     ; RETI R]CKSPRUNGADRESSE BANK HH
+        LD SP,TSP
+        ;-------------
+        ; AKTUELLE CPU SICHERN
+        PUSH AF
+        IN A,(PIOA)
+        PUSH AF
+        ;-------------
+        ; KARTEN LATCH RETTEN
+        LD L,A          ; ZUM ZURUECKSETZEN
+        SET 7,A
+        OUT (PIOA),A
+        IN A,(LATCH)    ; LETZTE KATRENNUMMER
+        PUSH AF
+        LD A,L
+        OUT (PIOA),A
+        ;-------------
+        IN A,(PIOB)
+        PUSH AF
+        ;--------------
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        PUSH IY
+        EX AF,AF'
+        EXX
+        PUSH AF
+        PUSH BC
+        PUSH DE
+        PUSH HL
+
+        ;---------------
+        ; CTC 3 MIT INTERRUPT STARTEN
+
+        LD HL,TASK
+        LD (0F806H),HL  ; INT ADRESSE FUER BANK HH
+
+        LD A,EOFF       ; BANK0 LL
+        OUT (PIOA),A
+
+        LD SP,9000H
+        LD (0F806H),HL  ; INT ADRESSE FUER BANK LL
+
+        ;-----------------
+        ; CTC3 INTERRUPT INIT
+
+        LD HL,0F800H
+        LD A,H
+        LD I,A
+        LD A,BAUD4
+        OUT (CTC+3),A
+        LD A,TIME4
+        OUT (CTC+3),A
+        LD A,L
+        OUT (CTC),A
+
+        XOR A
+        SET ELATCH,A
+        OUT (PIOA),A
+        JP BOOT1                ; START BOOT
+
+;--------------------------
+; INT CTC3 * COUNT IN I/O SRAM
+
+TASKEP: IN A,(PIOB)
+        PUSH AF
+        LD A,1FH
+        OUT (PIOB),A            ; I/O SRAM BANK SETZEN
+        IN A,(URCS+1EH)
+        DEC A
+        JR Z,TAS01
+        OUT (URCS),A
+        JR TASK14
+        ;-------------------
+        ; >1ms DANN AUSFUEHREN
+
+TAS01:  IN A,(URCS+1EH)
+        OUT (URCS+1EH),A        ; TIMER NEU STARTEN
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        PUSH IY
+        EX AF,AF'
+        EXX
+        PUSH AF
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        ;-------------
+
+        IN A,(PIOA)
+        BIT TA16,A
+        JR NZ,TAS12
+        SET TA16,A
+        JR TAS13
+TAS12:  RES TA16,A
+TAS13:  RES TAS,A
+        OUT (PIOA),A
+        ;--------------
+
+        PUSH HL
+        PUSH DE
+        PUSH BC
+        PUSH AF
+        EXX
+        EX AF,AF'
+        POP IY
+        POP HL
+        POP DE
+        POP BC
+TASK14: POP AF
+        OUT (PIOB),A
+        JP TASK1
+
+;--------------------------------
+; FDC STARTINITIALISIERUNG DD DRIVE A
+;------------------------
+        ; FDC RESET HARDWAR
+INITIA: CALL RY01               ; FDC HARTWARE RESET
+        LD B,0AH                ; 10*8=80 MAL FFH TAKTEN
+        IN A,(FDC+1)            ; ERST SD_CS AUF 1 SETZEN DISABLE
+        BIT 0,A                 ; MMC-KARTEN SELEKT
+        JR Z,SDERR
+;
+; SENDE MINDESTENS 74 CLOCK-SIGNALE
+;
+SD_INI: LD A,0FFH
+        OUT (FDC+1),A           ; NUMBER OF DUMMY CLOCK
+        DJNZ SD_INI
+;
+; SEND COMD0 GO_IDLE_STATA
+;
+        LD BC,0000H
+        CALL SETTRK
+        CALL SETSEC
+        LD HL,SDRES             ; MMC-KARTE RESET GO_IDLE_STATA COMMAND
+        CALL COMUP              ; NUR COMMAND LADEN
+        CALL COMMAND
+        LD HL,STAT0
+        CALL TEXTOUT
+        CALL GETBYTE            ; MMC STATUS READ
+        CALL STFDC              ; SEND DISPLAY
+        LD HL,STAT0E
+        CALL TEXTOUT
+        BIT 0,A
+        JR NZ,SDINI1            ; CHECK BIT 0= 1 ->
+        ;--------
+SDERR:  LD HL,RESNEU
+        CALL TEXTOUT
+        JR INITIA               ; INIT MMC NEW START
+;
+; SEND CMD1
+; CART FROM IDLE-MODE ON BETRIEBSMODE SET
+;
+
+SDINI1: LD HL,STAT0
+        CALL TEXTOUT
+        LD HL,SDCMD1    ; CMD1 KARTE READ X
+        CALL COMUP      ; NUR COMMAND LADEN
+        CALL COMMAND
+        CALL GETBYTE
+        CALL STFDC
+        LD HL,STAT0E
+        CALL TEXTOUT
+        AND 0FFH
+        JR NZ,SDINI1    ; STATUS NOT 00 ->
+;
+; SEND CMD16 DATENBLOCK 512BYTE
+; SET BLOCKGOESSE AUF 512BYTE
+;
+;       LD HL,STAT0
+;       CALL TEXTOUT
+        LD HL,SDBL
+        CALL COMUP      ; NUR COMMAND LADEN
+        CALL COMMAND
+        LD B,0FFH
+        DJNZ $
+        CALL GETBYTE
+        CALL STFDC
+;       LD HL,STAT0E
+;       CALL TEXTOUT
+        AND 0FFH
+        JR NZ,SDERR
+;----------------------
+        LD HL,STAT0
+        CALL TEXTOUT
+        LD HL,SDID
+        CALL COMUP      ; NUR COMMAND LADEN
+        CALL COMMAND
+        LD B,0FFH
+        DJNZ $
+        CALL GETBYTE
+        CALL STFDC
+        LD HL,STAT0E
+        CALL TEXTOUT
+        AND 0FFH
+        JR NZ,SDERR
+
+;---------------------------
+; KARTEN ID-NUMMER LESEN
+
+        LD HL,STAT3
+        CALL TEXTOUT
+        LD B,14H
+SDRDID: CALL GETBYTE
+        CALL HEX
+        DJNZ SDRDID
+        LD HL,STAT3E
+        CALL TEXTOUT
+;----------------------------
+
+        LD HL,STAT0
+        CALL TEXTOUT
+        LD HL,SDCSD     ; MMC-KARTE SPEZIFISCHE DATEN
+        CALL COMUP
+        CALL COMMAND
+        CALL GETBYTE
+        CALL STFDC
+        LD HL,STAT0E
+        CALL TEXTOUT
+        BIT 0,A
+        JP NZ,SDERR
+;---------------------------
+; MMC-KARTE SPEZIFISCHE DATEN LESEN
+
+        LD HL,STAT3
+        CALL TEXTOUT
+        LD B,14H
+SDCSD0: CALL GETBYTE
+        CALL    HEX
+        DJNZ    SDCSD0
+        LD      HL,STAT3E
+        CALL    TEXTOUT
+;       CALL    HOME0
+        RET
+
+;---------------------------
+;       FDC READY MASTE STATUS BIT 7
+
+RY01:   PUSH    AF
+        LD      A,0FH
+        CALL    FDCHRES
+        LD      A,1FH
+        CALL    PAUS
+        POP     AF
+        RET
+;----------------------------------
+; PAUSE
+
+PAUS:   NOP
+F08FB:  PUSH BC
+        PUSH DE
+PAUS01: PUSH AF
+        LD C,0CFH
+FDCP2:  LD B,40H
+FDCP1:  IN A,(CTC+3)
+        CP C
+        JR Z,FDCP1
+        LD C,A
+        DJNZ FDCP1
+        DEC E
+        JP NZ,FDCP2
+        POP AF
+        DEC A
+        JR NZ,PAUS01
+        POP DE
+        POP BC
+        RET
+
+;------------------------------
+; STATUSTEXT IN A,(C) ALS BIN[R AUSGEBEN
+
+MSTAT:  LD      HL,MSGTF        ; STATUSTEXT 1.H[LFTE
+    CALL    TEXTOUT         ; TEXT VOR REST ENDE AUSG.
+        IN      A,(C)           ; DANACH STATUS LESEN
+        CALL    STFDC           ; AKKU IN BCD AUSGEBEN AB CURSOR
+        LD      HL,MSGTE        ; STATUSTEST 2. H[LFTE
+        CALL    TEXTOUT         ; AUSGEBEN
+        RET
+;------------------------------
+
+INCLUDE BIOSSYS.MAC
+
+
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
